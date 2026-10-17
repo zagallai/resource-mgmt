@@ -1,0 +1,1560 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Resource Compass REST API",
+    "version": "0.1.0",
+    "description": "All mutations require an Origin header matching APP_ORIGIN. Tenant business reads enforce RLS. Rates/history admin-only; dashboard manager/admin-only. USD cents and UTC date-only allocations."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080"
+    }
+  ],
+  "security": [
+    {
+      "session": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "session": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "rc_session"
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Database health",
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        },
+        "security": []
+      }
+    },
+    "/auth/request": {
+      "post": {
+        "summary": "Request email link; identical response for invited/uninvited email",
+        "responses": {
+          "202": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          },
+          "429": {
+            "description": "Too many requests; retry in 15 minutes"
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  }
+                },
+                "required": [
+                  "email"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/verify": {
+      "post": {
+        "summary": "Consume link and set HttpOnly SameSite=Lax session cookie",
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "token"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "summary": "Invalidate session and clear cookie",
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        }
+      }
+    },
+    "/api/me": {
+      "get": {
+        "summary": "List organizations and roles for the current user",
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/invitations": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "summary": "Create invitations (rates/invitations require admin)",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "admin",
+                      "manager",
+                      "viewer"
+                    ]
+                  }
+                },
+                "required": [
+                  "email",
+                  "role"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/allocations": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "List allocations for the selected organization",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create allocations (rates/invitations require admin)",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "task_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "resource_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "day": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "hours": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 24
+                  }
+                },
+                "required": [
+                  "task_id",
+                  "resource_id",
+                  "day",
+                  "hours"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/resources": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "List resources for the selected organization",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create resources (rates/invitations require admin)",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "daily_hours": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 24
+                  }
+                },
+                "required": [
+                  "name",
+                  "daily_hours"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/sprints": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "List sprints for the selected organization",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create sprints (rates/invitations require admin)",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "start_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "end_date": {
+                    "type": "string",
+                    "format": "date"
+                  }
+                },
+                "required": [
+                  "name",
+                  "start_date",
+                  "end_date"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/history": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "List history for the selected organization",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/projects": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "List projects for the selected organization",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create projects (rates/invitations require admin)",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "budget_cents": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "name",
+                  "budget_cents"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/tasks": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "List tasks for the selected organization",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create tasks (rates/invitations require admin)",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "project_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "jira_key": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "estimate_hours": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "start_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "target_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "primary_owner_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "sprint_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "project_id",
+                  "jira_key",
+                  "title",
+                  "estimate_hours",
+                  "start_date",
+                  "target_date",
+                  "primary_owner_id"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/daily-capacity": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "List daily-capacity for the selected organization",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/capacity": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "List capacity for the selected organization",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/dashboard": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "List dashboard for the selected organization",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/rates": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "List rates for the selected organization",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create rates (rates/invitations require admin)",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "resource_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "effective_from": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "hourly_cents": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "resource_id",
+                  "effective_from",
+                  "hourly_cents"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/worklogs": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "List worklogs for the selected organization",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create worklogs (rates/invitations require admin)",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "task_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "resource_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "day": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "hours": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 24
+                  }
+                },
+                "required": [
+                  "task_id",
+                  "resource_id",
+                  "day",
+                  "hours"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/tasks/{task}/status": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "task",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "summary": "Change status; release today/future allocations on hold, done or reassignment",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "planned",
+                      "active",
+                      "hold",
+                      "done"
+                    ]
+                  }
+                },
+                "required": [
+                  "version",
+                  "reason",
+                  "status"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/tasks/{task}/owner": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "task",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "summary": "Change owner; release today/future allocations on hold, done or reassignment",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or foreign reference"
+          },
+          "401": {
+            "description": "Session required"
+          },
+          "403": {
+            "description": "Origin or role denied"
+          },
+          "404": {
+            "description": "Unknown organization or operation"
+          },
+          "409": {
+            "description": "Concurrent update; refresh"
+          },
+          "500": {
+            "description": "Read failure"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "primary_owner_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "version",
+                  "reason",
+                  "primary_owner_id"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

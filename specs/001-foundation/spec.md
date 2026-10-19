@@ -1,4 +1,4 @@
-# 001 — Resource Compass foundation
+# 001 — Resource Management foundation
 Status: initial vertical slice implemented; remaining scope tracked in tasks.md
 Date: 2026-10-16
 
@@ -18,7 +18,7 @@ A hold, completion or primary-owner reassignment releases all unreleased allocat
 Acceptance: held/done tasks cannot receive allocations; stale task versions return 409; released allocations and reasons remain visible; actual work remains unchanged.
 
 ## P1 — Capacity and money
-Daily capacity defaults to eight hours. Sprint capacity uses inclusive weekdays and scheduled allocations in that date range, including allocations for tasks outside that sprint to reflect competing work. Worklogs use the most recent rate effective on work date and snapshot it forever. Forecast prices unreleased allocations today onward at the applicable dated rate. Budgets and all costs are USD cents. Missing rates are shown as unpriced allocations.
+Daily capacity defaults to eight hours. Sprint capacity uses inclusive weekdays and scheduled allocations in that date range, including allocations for tasks outside that sprint to reflect competing work. Worklogs use the most recent rate effective on work date and snapshot it forever. Forecast prices unreleased allocations today onward at the applicable dated rate. Budgets and all costs are minor units. Missing rates are shown as unpriced allocations.
 Acceptance: 14 consecutive days yield ten workdays; overload is visible; new rate changes forecasts but never old actual costs; logging without a rate fails.
 
 ## P2 — Remaining V1
@@ -28,4 +28,7 @@ Leave/holidays, partial-day hold timestamps, remaining-sprint capacity, monthly 
 Passkeys, Entra SSO, AI recommendations, subscriptions, automated Jira sync.
 
 ## Operational assumptions
-UTC calendar dates in the slice; organization timezone support later. Whole-day release semantics apply to today. One currency per installation (USD). Manual actual work logging; future-dated actuals rejected. Planned allocations do not automatically decrement when work is logged: managers must hold/complete/replan, and dashboard clearly labels scheduled forecast. Forecast is not a full estimate-to-complete.
+UTC calendar dates in the slice; organization timezone support later. Whole-day release semantics apply to today. Amounts are displayed without a currency label; no currency conversion is performed. Manual actual work logging; future-dated actuals rejected. Planned allocations do not automatically decrement when work is logged: managers must hold/complete/replan, and dashboard clearly labels scheduled forecast. Forecast is not a full estimate-to-complete.
+
+## 2026-10-17 — Currency-neutral entry and configurable working hours
+No currency code or symbol is shown in forms, costs or rates. Enter rates and budgets as normal decimal amounts (100 means 100, not 1); existing stored minor-unit amounts stay unchanged. Resources default to 8 working hours per day when omitted and accept a configured value greater than 0 and at most 24. Managers/admins can update existing resources; daily and full-sprint capacity recalculate, and the before/after values are audited. This V1 capacity setting applies across displayed dates; effective-dated capacity calendars remain future work.

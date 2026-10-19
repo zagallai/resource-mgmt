@@ -1,69 +1,80 @@
-# Resource Compass
+# Resource Management
 
-An initial persistent vertical slice of a multi-user engineering planning app, built with Next.js/TypeScript, Go REST and PostgreSQL. This directory is the application; the parent project's sources remain untouched.
+Engineering resource and project planning with a Next.js/TypeScript frontend, Go REST API and a portable SQLite database. No PostgreSQL service is required. The database defaults to `data/resource-compass.db` inside this project and is excluded from Git.
 
-## Start with Docker
+## Native start
 
-Requires Docker Compose and a running Docker daemon. Local services bind to loopback. Credentials are development-only.
-
-```sh
-cp .env.example .env
-docker compose up --build -d
-docker compose --profile setup run --rm bootstrap
-```
-
-Run bootstrap once for the first organization. Set ADMIN_EMAIL and ORG_NAME in .env beforehand. Each additional bootstrap invocation deliberately creates another organization. Open http://localhost:3000 and request a sign-in link for that admin email. Open the email in Mailpit at http://localhost:8025, follow the link and confirm sign-in. No public registration and no seeded login bypass.
-
-1. People & projects: create resources and a project.
-2. Administration: add a rate for each resource, effective on/before work dates. Invite colleagues here; after saving, colleagues request their own sign-in email.
-3. Planning: create a sprint.
-4. Tasks: create a Jira task with a primary owner and optional sprint.
-5. Planning: allocate different contributors by day and record actual work.
-6. Tasks: hold/resume or reassign, providing a reason. Released allocations remain visible in Activity. Resuming/reassigning requires explicit new scheduling.
-7. Overview: inspect full-sprint capacity, daily overload count and project costs.
-
-Stop with `docker compose down`; the database volume remains. Avoid removing the volume if you need its data.
-
-## Native development
-
-Go 1.26+, Node 24, PostgreSQL 16+, SMTP test inbox (or run `node scripts/dev-mail.mjs` for a loopback-only inbox at port 8025). Start PostgreSQL and create a database plus separate migration and application roles. Apply scripts/init-db.sql adapting the owner name and database name for your local environment. Run the embedded migration with the owner DSN, then bootstrap once:
+Requires Go 1.26+, Node 24 and an SMTP inbox. Schema initialization runs automatically when the API starts.
 
 ```sh
+# Terminal 1, from the project root
+node scripts/dev-mail.mjs
+# Terminal 2
 cd apps/api
-export DATABASE_URL='postgres://OWNER:PASSWORD@localhost:5432/compass?sslmode=disable'
-go run . migrate
-ADMIN_EMAIL=admin@example.com ORG_NAME=Engineering go run . bootstrap
-export DATABASE_URL='postgres://compass_app:compass_app_local@localhost:5432/compass?sslmode=disable'
-APP_ORIGIN=http://localhost:3000 COOKIE_SECURE=false SMTP_ADDR=localhost:1025 go run .
-```
-
-In another terminal:
-
-```sh
+# New installation only: run bootstrap once, not after copying an existing database.
+ADMIN_EMAIL=admin@resourcemgmt.com ORG_NAME=Engineering go run . bootstrap
+COOKIE_SECURE=false APP_ORIGIN=http://localhost:3000 SMTP_ADDR=127.0.0.1:1025 go run .
+# Terminal 3
 cd apps/web
 npm ci
 npm run dev
 ```
 
-Never run the API as a database superuser: superusers bypass RLS. Secure cookies default to true; COOKIE_SECURE=false is for local HTTP only. Production requires HTTPS, secure cookies, real mail delivery, managed secrets, backups and the remaining operational tasks in the backlog. Compose is a local environment, not a production deployment.
+Open http://localhost:3000 and request a sign-in link. The local inbox is http://localhost:8025. Links expire in 10 minutes; sessions last 24 hours. Set `SQLITE_PATH` to an absolute file location to override the default. The API resolves the default inside the source project's data directory; a standalone binary uses `data/` under its working directory.
+
+## Docker start
+
+```sh
+cp .env.example .env
+./scripts/compose-local.sh up --build -d
+# New installations only:
+./scripts/compose-local.sh --profile setup run --rm bootstrap
+```
+
+The wrapper uses your local user/group IDs and prepares private `data/` and `backups/` directories. SQLite is bind-mounted from this project; there is no database-server container. Stop with `./scripts/compose-local.sh down`. Existing data is retained. Docker is an optional local environment; use HTTPS, secure cookies and proper SMTP when hosting.
+
+## Working in the app
+
+- Resources manages profiles, working hours (default eight), hourly rates, archive/restore and deletion of unused people.
+- Projects manages project details, prime resource, optional activity rows and confirmed deletion with explicit linked-task override.
+- Planning creates/edits project-owned sprints, newest first.
+- Tasks creates and assigns work. Jira keys are optional; estimates are days (including quarters). A standard effort day is eight hours. Sprint task dates must stay inside the sprint. Allocate resource time defaults to the task's owner; actual-work logging is optional.
+- Overview shows team availability, workload and sprint capacity. Project costs are hidden for now.
+- Activity retains bookings, actual work and audit history. Admin manages invitations.
+
+Current limitation: an allocation still books all entered days against its single selected date. A three-day booking therefore appears as 24 hours on that date; multi-date distribution remains to be implemented. Leave/holiday calendars, early-finish forecasts, pagination and Jira integration remain backlog.
+
+## Backup and move
+
+Create a consistent standalone database snapshot; the destination must not already exist:
+
+```sh
+cd apps/api
+go run . backup ../../backups/resource-compass-transfer.db
+```
+
+For Docker, use `./scripts/compose-local.sh exec api compass backup /backups/resource-compass-transfer.db`.
+
+For a move, stop the source API after its final backup, copy the application and snapshot to the destination, place the snapshot at `data/resource-compass.db`, restore runtime/SMTP settings, install dependencies and start. Do not bootstrap again. Rebuild binaries for a different operating system/CPU. Do not copy only the main file while the API is running: WAL companion files can contain recent writes. Use the backup command, or stop the API and copy the entire data directory. Use persistent local disk, not a network share or an ephemeral deployment filesystem. Separate writable copies do not synchronize.
+
+Database and backup files contain private user/session/history data; keep them private and out of Git. SQLite does not encrypt the file automatically.
 
 ## Tests
 
 ```sh
 cd apps/api
-TEST_DATABASE_URL='postgres://ADMIN:PASSWORD@localhost:5432/postgres?sslmode=disable' go test -race -v ./...
+go test -race -v ./...
 go vet ./...
 cd ../web
-npm ci
 npm run build
-npx playwright install chromium
-npm run test:e2e
 ```
 
-The integration test creates a new isolated database and restricted runtime role, then removes them. Its admin connection needs CREATEDB/CREATEROLE. Without TEST_DATABASE_URL the integration test explicitly skips. Browser tests require a running app, fresh bootstrap admin (admin@example.com by default), and a local Mailpit-compatible inbox at port 8025. They create uniquely named records in that local organization. See docs/validation.md for actual execution results and limits.
+Backend tests use temporary SQLite files with no database server and no skipped PostgreSQL prerequisites. They cover login, roles, tenant boundaries, multiple contributors, rates, history, sprint guards, archive/delete, concurrent login reuse, atomic import and backup/restore. Browser tests must run against a dedicated disposable database/organization, never the user's working data. `E2E_BASE_URL` sets the browser target; `MAIL_URL` sets the local inbox.
 
-## Specifications
+## Architecture and specifications
 
-Official GitHub Spec Kit scaffolding is under .specify and .agents/skills (specify-cli 1.2.0, Codex integration). Project-specific baseline: specs/001-foundation/{spec,plan,data-model,tasks}.md. API contract: specs/001-foundation/contracts/openapi.json. The first migration is embedded in apps/api/schema.sql and versioned as schema_version=1; subsequent versions need incremental migrations.
+See [the SQLite decision](docs/decisions/0002-sqlite-portability.md), [schema diagram](docs/sqlite-schema.md), and [validation](docs/validation.md). The active embedded schema is `apps/api/sqlite_schema.sql`, with a separate SQLite schema-version history. `apps/api/schema.sql` and PostgreSQL migration files are historical references, not executed by the SQLite API. Existing Spec Kit files under `.specify`, `.agents/skills` and `specs` remain available; the SQLite decision supersedes earlier PostgreSQL/RLS assumptions.
 
-Current limits: USD/UTC day-based planning; three broad roles; weekday capacity without leave/holidays; forecast covers scheduled future commitments only and does not automatically reconcile worklogs against today's allocations. Monthly reports, estimate history, CSV/Jira integration and detailed permissions remain backlog.
+## GitHub repository
+
+SQLite databases, backups, local environment files, generated screenshots and build output are excluded from Git. A fresh checkout starts without working data; follow the bootstrap steps above. Never add a database or export to source control. CI runs backend race tests, Go vet, a production frontend build and Compose configuration validation.

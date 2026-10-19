@@ -7,3 +7,21 @@ playwright-report/
 test-results/
 *.tsbuildinfo
 apps/api/compass
+
+# Portable private SQLite data and backups
+data/
+backups/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.dump
+
+# Local OS, Python cache and generated validation screenshots
+.DS_Store
+__pycache__/
+*.pyc
+docs/dashboard.png
+docs/projects.png
+docs/resources.png

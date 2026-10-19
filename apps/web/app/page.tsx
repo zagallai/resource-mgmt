@@ -1,10 +1,13 @@
 "use client";
 import { useEffect, useState, FormEvent } from "react";
+import { ResourcesScreen, ProjectsScreen } from "./management";
 type Row = Record<string, string | number | boolean | null>;
 type Org = { id: string; name: string; role: string };
 const collections = [
   "resources",
+  "archived-resources",
   "projects",
+  "project-activities",
   "tasks",
   "sprints",
   "allocations",
@@ -13,6 +16,8 @@ const collections = [
   "worklogs",
 ];
 export default function Home() {
+  const [taskProject, setTaskProject] = useState("");
+  const [workloadDate, setWorkloadDate] = useState(new Date().toISOString().slice(0,10));
   const [orgs, setOrgs] = useState<Org[]>([]),
     [org, setOrg] = useState(""),
     [role, setRole] = useState(""),
@@ -65,8 +70,31 @@ export default function Home() {
     e.preventDefault();
     const form = e.currentTarget;
     const fields = Object.fromEntries(new FormData(form).entries());
+    if (path === "tasks" && fields.sprint_id) {
+      const sprint = rows("sprints").find(s => s.id === fields.sprint_id);
+      if (sprint && (String(fields.start_date) < String(sprint.start_date) || String(fields.target_date) > String(sprint.end_date))) {
+        setMessage(`Task dates must stay within the selected sprint (${sprint.start_date} to ${sprint.end_date}).`);
+        return;
+      }
+    }
     const payload: Record<string, unknown> = { ...fields };
-    for (const key of numbers) payload[key] = Number(fields[key]);
+    for (const key of numbers)
+      payload[key] = Number(fields[key] || (key === "daily_hours" ? 8 : 0));
+    for (const key of ["hourly_rate", "budget"]) {
+      if (key in fields) {
+        payload[key === "hourly_rate" ? "hourly_cents" : "budget_cents"] =
+          Math.round(Number(fields[key]) * 100);
+        delete payload[key];
+      }
+    }
+    if ("allocation_days" in fields) {
+      payload.hours = Number(fields.allocation_days) * 8;
+      delete payload.allocation_days;
+    }
+    if ("estimate_days" in fields) {
+      payload.estimate_hours = Number(fields.estimate_days) * 8;
+      delete payload.estimate_days;
+    }
     if (payload.sprint_id === "") delete payload.sprint_id;
     await mutate(path, payload, () => form.reset());
   }
@@ -84,8 +112,10 @@ export default function Home() {
       done?.();
       await refresh(org, role);
       setMessage("Saved. Capacity and costs updated.");
+      return result.id as string;
     } catch (e) {
       setMessage((e as Error).message);
+      return null;
     } finally {
       setBusy(false);
     }
@@ -109,14 +139,19 @@ export default function Home() {
   }
   const rows = (n: string) => data[n] || [];
   const name = (n: string, id: unknown) =>
-    String(rows(n).find((x) => x.id === id)?.name || "—");
+    String(
+      (n === "resources"
+        ? [...rows("resources"), ...rows("archived-resources")]
+        : rows(n)
+      ).find((x) => x.id === id)?.name || "—",
+    );
   const task = (id: unknown) =>
-    String(rows("tasks").find((x) => x.id === id)?.jira_key || "—");
+    String(rows("tasks").find((x) => x.id === id)?.jira_key || rows("tasks").find((x) => x.id === id)?.title || "—");
   const editable = role === "admin" || role === "manager";
   const money = (c: unknown) =>
     new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(Number(c || 0) / 100);
   function select(
     field: string,
@@ -129,9 +164,13 @@ export default function Home() {
         {label}
         <select aria-label={label} name={field} required={!optional}>
           <option value="">{optional ? "No sprint" : "Select…"}</option>
-          {rows(collection).map((x) => (
+          {(collection === "all-resources"
+            ? [...rows("resources"), ...rows("archived-resources")]
+            : rows(collection)
+          ).map((x) => (
             <option key={String(x.id)} value={String(x.id)}>
-              {String(x.name || x.jira_key)}
+              {String(x.name || x.jira_key || x.title)}
+              {x.archived_at ? " (Archived)" : ""}
             </option>
           ))}
         </select>
@@ -145,9 +184,12 @@ export default function Home() {
         <input
           name={field}
           type={type}
-          required
+          required={field !== "jira_key"}
           defaultValue={value}
-          min={type === "number" ? 0 : undefined}
+          min={
+            field === "daily_hours" ? 0.01 : type === "number" ? 0 : undefined
+          }
+          max={field === "daily_hours" ? 24 : undefined}
           step={type === "number" ? "0.01" : undefined}
         />
       </label>
@@ -165,7 +207,7 @@ export default function Home() {
   if (!org)
     return (
       <main className="login">
-        <div className="brand">◈ Resource Compass</div>
+        <div className="brand">◈ Resource Management</div>
         <div className="eyebrow">ENGINEERING OPERATIONS</div>
         <h1>
           Clarity for
@@ -190,7 +232,7 @@ export default function Home() {
         <div className="brand">
           ◈ Resource
           <br />
-          Compass
+          Management
         </div>
         <p className="eyebrow">WORKSPACE</p>
         <select
@@ -213,11 +255,12 @@ export default function Home() {
         <nav>
           {[
             "Overview",
-            "Tasks",
-            "People & projects",
+            "Projects",
+            "Resources",
             "Planning",
+            "Tasks",
             "Activity",
-            ...(role === "admin" ? ["Administration"] : []),
+            ...(role === "admin" ? ["Admin"] : []),
           ].map((t) => (
             <button
               className={t === tab ? "selected" : ""}
@@ -248,7 +291,11 @@ export default function Home() {
             </p>
             <h1>{tab}</h1>
             <p className="muted">
-              Every task. Every contributor. One shared plan.
+              {tab === "Resources"
+                ? "Manage people, companies, rates and working hours."
+                : tab === "Projects"
+                  ? "Manage project details and planned activities."
+                  : "Every task. Every contributor. One shared plan."}
             </p>
           </div>
           <span className="badge">Live workspace</span>
@@ -285,42 +332,71 @@ export default function Home() {
               </article>
             </div>
             <section>
-              <h2>Project costs</h2>
-              <p className="muted">
-                USD · Actual work plus remaining scheduled spend. Unscheduled
-                work is excluded.
-              </p>
-              {role === "viewer" ? (
-                <p>Financial reporting requires manager access.</p>
-              ) : (
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Project</th>
-                      <th>Budget</th>
-                      <th>Actual</th>
-                      <th>Scheduled forecast</th>
-                      <th>Unpriced entries</th>
+              <h2>Who’s working on what</h2>
+              <p className="muted">Current and upcoming work, grouped by resource. Planned and on-hold work is labelled; overdue active work stays visible. This summary is independent of the workload date below.</p>
+              <table>
+                <thead><tr><th>Resource</th><th>Current and upcoming tasks</th></tr></thead>
+                <tbody>{rows("resources").map(r => {
+                  const today = new Date().toISOString().slice(0,10);
+                  const bookings = rows("allocations").filter(a => a.resource_id === r.id && !a.released_at && String(a.day) >= today);
+                  const assigned = rows("tasks").filter(t => t.status !== "done" &&
+                    (t.primary_owner_id === r.id || bookings.some(a => a.task_id === t.id)) &&
+                    (String(t.target_date) >= today || t.status === "active" || t.status === "hold" || bookings.some(a => a.task_id === t.id))
+                  ).sort((a,b) => String(a.start_date).localeCompare(String(b.start_date)) || String(a.title).localeCompare(String(b.title)));
+                  return <tr key={String(r.id)}><td>{r.name}</td><td>{assigned.length ? <ul>{assigned.map(t => <li key={String(t.id)}>
+                    <strong>{t.title}</strong>{t.jira_key ? ` (${t.jira_key})` : ""} · {name("projects",t.project_id)} · <span className={`badge ${t.status === "hold" ? "hold" : ""}`}>{t.status}</span>
+                    <div className="muted">{t.start_date} → {t.target_date}{String(t.target_date) < today ? " · Overdue" : ""}{t.primary_owner_id !== r.id ? " · Contributor" : ""}</div>
+                  </li>)}</ul> : <span className="muted">No current or upcoming tasks</span>}</td></tr>;
+                })}</tbody>
+              </table>
+              {!rows("resources").length && <p className="empty">Add resources and assign tasks to see the team’s work here.</p>}
+            </section>
+            <section>
+              <h2>Team availability</h2>
+              <label>Workload date<input aria-label="Workload date" type="date" value={workloadDate} onChange={e => setWorkloadDate(e.target.value)} /></label>
+              <p className="muted">Booked time and remaining capacity for this date. Unbooked tasks still need time allocated; availability does not predict early completion. Standard effort days use 8 hours.</p>
+              <table><thead><tr><th>Resource</th><th>Booked days</th><th>Available days</th><th>Status</th><th>Tasks on this date</th><th>Assigned task target dates</th></tr></thead>
+                <tbody>{rows("resources").map(r => {
+                  const bookings = rows("allocations").filter(a => a.resource_id === r.id && a.day === workloadDate && !a.released_at);
+                  const hours = bookings.reduce((sum,a) => sum + Number(a.hours),0);
+                  const capacity = Number(r.daily_hours);
+                  const assigned = rows("tasks").filter(t => t.primary_owner_id === r.id && t.status !== "done");
+                  return <tr key={String(r.id)}>
+                    <td>{r.name}</td><td>{hours / 8}</td><td>{Math.max(0,capacity-hours)/8}</td>
+                    <td className={hours>capacity ? "risk" : ""}>{hours>capacity ? "Over capacity" : hours===capacity ? "Fully booked" : "Capacity available"}</td>
+                    <td>{bookings.map(a => String(a.jira_key || a.task_title || task(a.task_id))).filter((v,i,all) => all.indexOf(v)===i).join(", ") || "No time booked"}</td>
+                    <td>{assigned.map(t => `${t.title}: ${t.target_date} (${t.status})`).join("; ") || "No open tasks"}</td>
+                  </tr>;
+                })}</tbody>
+              </table>
+              {!rows("resources").length && <p className="empty">Add resources to see team availability.</p>}
+            </section>
+            <section>
+              <h2>Daily workload</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Person</th>
+                    <th>Date</th>
+                    <th>Scheduled</th>
+                    <th>Capacity</th>
+                    <th>Risk</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows("daily-capacity").map((c) => (
+                    <tr key={`${c.resource_id}-${c.day}`}>
+                      <td>{c.name}</td>
+                      <td>{c.day}</td>
+                      <td>{c.allocated_hours}h</td>
+                      <td>{c.daily_hours}h</td>
+                      <td className={c.overloaded ? "risk" : ""}>
+                        {c.overloaded ? "Over capacity" : "Within capacity"}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {rows("dashboard").map((p) => (
-                      <tr key={String(p.id)}>
-                        <td>{p.name}</td>
-                        <td>{money(p.budget_cents)}</td>
-                        <td>{money(p.actual_cents)}</td>
-                        <td>{money(p.forecast_cents)}</td>
-                        <td>{p.unpriced_allocations}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-              {!rows("projects").length && (
-                <p className="empty">
-                  Start in People & projects: add your team, then a project.
-                </p>
-              )}
+                  ))}
+                </tbody>
+              </table>
             </section>
             <section>
               <h2>Sprint capacity</h2>
@@ -362,6 +438,27 @@ export default function Home() {
         )}
         {tab === "Tasks" && (
           <>
+            {editable && (
+              <section>
+                <h2>Create task</h2>
+                <form
+                  className="form-grid"
+                  onSubmit={(e) => submit(e, "tasks")}
+                >
+                  <label>Project<select aria-label="Project" name="project_id" required value={taskProject} onChange={e => setTaskProject(e.target.value)}><option value="">Select…</option>{rows("projects").map(p => <option key={String(p.id)} value={String(p.id)}>{p.name}</option>)}</select></label>
+                  {input("jira_key", "Jira key (optional)")}
+                  {input("title", "Task title")}
+                  {select("primary_owner_id", "Primary owner", "resources")}
+                  <label>Estimated days<input name="estimate_days" type="number" required min="0" step="0.25" aria-describedby="estimate-days-help" /></label>
+                  <p id="estimate-days-help" className="muted">Effort in days: 0.25, 0.5, 1, 3, etc. One estimated day equals 8 working hours. Resource availability still uses each person’s configured daily hours.</p>
+                  {input("start_date", "Start date", "date")}
+                  {input("target_date", "Target date", "date")}
+                  <label>Sprint<select key={taskProject} name="sprint_id" aria-label="Sprint"><option value="">No sprint</option>{rows("sprints").filter(s => s.project_id === taskProject).map(s => <option key={String(s.id)} value={String(s.id)}>{s.name}</option>)}</select></label>
+                  <p className="muted">If a sprint is selected, task dates must fall within its start and end dates.</p>
+                  {save()}
+                </form>
+              </section>
+            )}
             <section>
               <h2>Task board</h2>
               <div className="task-grid">
@@ -384,9 +481,9 @@ export default function Home() {
                       {t.start_date} → {t.target_date}
                     </p>
                     <div className="task-numbers">
-                      <span>{t.estimate_hours}h estimated</span>
-                      <span>{t.actual_hours}h actual</span>
-                      <span>{t.remaining_hours}h remaining</span>
+                      <span>{Number(t.estimate_hours) / 8} days estimated</span>
+                      <span>{Number(t.actual_hours) / 8} days actual</span>
+                      <span>{Number(t.remaining_hours) / 8} days remaining</span>
                     </div>
                     {editable && (
                       <>
@@ -418,10 +515,36 @@ export default function Home() {
                           {save()}
                         </form>
                         <details>
+                          <summary>Allocate resource time</summary>
+                          <section aria-label="Allocate resource time">
+                            <p className="muted">Reserve time on this task. The assigned owner is selected by default. One day equals 8 hours.</p>
+                            <form onSubmit={e => submit(e,"allocations")}>
+                              <input type="hidden" name="task_id" value={String(t.id)} />
+                              <label>Resource<select name="resource_id" aria-label="Resource" required defaultValue={String(t.primary_owner_id)}>{rows("resources").map(r => <option key={String(r.id)} value={String(r.id)}>{r.name}</option>)}</select></label>
+                              {input("day","Work date","date")}
+                              <label>Days<input name="allocation_days" required type="number" min="0.25" step="0.25" /></label>
+                              <button disabled={busy || t.status === "hold" || t.status === "done"}>Allocate time</button>
+                            </form>
+                            {(t.status === "hold" || t.status === "done") && <p className="muted">Resume this task before booking time.</p>}
+                          </section>
+                        </details>
+                        <details>
+                          <summary>Record actual work</summary>
+                          <section aria-label="Record actual work">
+                            <p className="muted">Optional: record hours already worked. Requires a rate effective on the work date.</p>
+                            <form onSubmit={e => submit(e,"worklogs",["hours"])}>
+                              <input type="hidden" name="task_id" value={String(t.id)} />
+                              <label>Contributor<select name="resource_id" required defaultValue={String(t.primary_owner_id)}>{[...rows("resources"),...rows("archived-resources")].map(r => <option key={String(r.id)} value={String(r.id)}>{r.name}</option>)}</select></label>
+                              {input("day","Work date","date")}
+                              {input("hours","Hours","number")}
+                              {save()}
+                            </form>
+                          </section>
+                        </details>
+                        <details>
                           <summary>Change primary owner</summary>
                           <p className="muted">
-                            Releases all remaining allocations. Schedule
-                            contributors again under Planning.
+                            Releases remaining future bookings. Allocate time again here for the new owner.
                           </p>
                           <form
                             onSubmit={(e) =>
@@ -448,67 +571,35 @@ export default function Home() {
                 ))}
               </div>
               {!rows("tasks").length && (
-                <p className="empty">Create your first Jira task below.</p>
+                <p className="empty">Create your first task above.</p>
               )}
             </section>
-            {editable && (
-              <section>
-                <h2>Create task</h2>
-                <form
-                  className="form-grid"
-                  onSubmit={(e) => submit(e, "tasks", ["estimate_hours"])}
-                >
-                  {select("project_id", "Project", "projects")}
-                  {input("jira_key", "Jira key")}
-                  {input("title", "Task title")}
-                  {select("primary_owner_id", "Primary owner", "resources")}
-                  {input("estimate_hours", "Estimated hours", "number")}
-                  {input("start_date", "Start date", "date")}
-                  {input("target_date", "Target date", "date")}
-                  {select("sprint_id", "Sprint", "sprints", true)}
-                  {save()}
-                </form>
-              </section>
-            )}
+
           </>
         )}
-        {tab === "People & projects" && (
-          <div className="two-col">
-            <section>
-              <h2>People</h2>
-              {rows("resources").map((r) => (
-                <p key={String(r.id)}>
-                  <b>{r.name}</b>
-                  <span className="float">{r.daily_hours}h / day</span>
-                </p>
-              ))}
-              {editable && (
-                <form onSubmit={(e) => submit(e, "resources", ["daily_hours"])}>
-                  {input("name", "Name")}
-                  {input(
-                    "daily_hours",
-                    "Daily capacity (hours)",
-                    "number",
-                    "8",
-                  )}
-                  {save()}
-                </form>
-              )}
-            </section>
-            <section>
-              <h2>Projects</h2>
-              {rows("projects").map((p) => (
-                <p key={String(p.id)}>{p.name}</p>
-              ))}
-              {editable && (
-                <form onSubmit={(e) => submit(e, "projects", ["budget_cents"])}>
-                  {input("name", "Project name")}
-                  {input("budget_cents", "Budget in USD cents", "number", "0")}
-                  {save()}
-                </form>
-              )}
-            </section>
-          </div>
+        {tab === "Resources" && (
+          <ResourcesScreen
+            key={org}
+            resources={rows("resources")}
+            archivedResources={rows("archived-resources")}
+            rates={rows("rates")}
+            role={role}
+            busy={busy}
+            onSave={mutate}
+          />
+        )}
+        {tab === "Projects" && (
+          <ProjectsScreen
+            key={org}
+            projects={rows("projects")}
+            tasks={rows("tasks")}
+            resources={rows("resources")}
+            archivedResources={rows("archived-resources")}
+            activities={rows("project-activities")}
+            role={role}
+            busy={busy}
+            onSave={mutate}
+          />
         )}
         {tab === "Planning" && (
           <>
@@ -516,31 +607,9 @@ export default function Home() {
               {editable && (
                 <>
                   <section>
-                    <h2>Schedule a contributor</h2>
-                    <form onSubmit={(e) => submit(e, "allocations", ["hours"])}>
-                      {select("task_id", "Task", "tasks")}
-                      {select("resource_id", "Contributor", "resources")}
-                      {input("day", "Work date", "date")}
-                      {input("hours", "Hours", "number")}
-                      {save()}
-                    </form>
-                  </section>
-                  <section>
-                    <h2>Record actual work</h2>
-                    <p className="muted">
-                      Requires an effective rate. Recorded costs are preserved.
-                    </p>
-                    <form onSubmit={(e) => submit(e, "worklogs", ["hours"])}>
-                      {select("task_id", "Task", "tasks")}
-                      {select("resource_id", "Contributor", "resources")}
-                      {input("day", "Work date", "date")}
-                      {input("hours", "Hours", "number")}
-                      {save()}
-                    </form>
-                  </section>
-                  <section>
                     <h2>Create sprint</h2>
                     <form onSubmit={(e) => submit(e, "sprints")}>
+                      {select("project_id","Project","projects")}
                       {input("name", "Sprint name")}
                       {input("start_date", "Start date", "date")}
                       {input("end_date", "End date", "date")}
@@ -551,32 +620,25 @@ export default function Home() {
               )}
             </div>
             <section>
-              <h2>Daily workload</h2>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Person</th>
-                    <th>Date</th>
-                    <th>Scheduled</th>
-                    <th>Capacity</th>
-                    <th>Risk</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows("daily-capacity").map((c) => (
-                    <tr key={`${c.resource_id}-${c.day}`}>
-                      <td>{c.name}</td>
-                      <td>{c.day}</td>
-                      <td>{c.allocated_hours}h</td>
-                      <td>{c.daily_hours}h</td>
-                      <td className={c.overloaded ? "risk" : ""}>
-                        {c.overloaded ? "Over capacity" : "Within capacity"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <h2>Sprints</h2>
+              {rows("sprints").length ? <div className="management-list">{rows("sprints").map(s => <details className="management-card" key={String(s.id)}>
+                <summary><strong>{s.name}</strong><span>{s.project_id ? name("projects",s.project_id) : "Choose project"} · {s.start_date} → {s.end_date}</span></summary>
+                {editable && <form className="form-grid" onSubmit={e => submit(e,`sprints/${s.id}/edit`)}>
+                  <input type="hidden" name="previous_name" value={String(s.name)} />
+                  <input type="hidden" name="previous_start" value={String(s.start_date)} />
+                  <input type="hidden" name="previous_end" value={String(s.end_date)} />
+                  <input type="hidden" name="previous_project" value={String(s.project_id || "")} />
+                  <label>Project<select aria-label="Project" name="project_id" required defaultValue={String(s.project_id || "")}><option value="">Select…</option>{rows("projects").map(p => <option key={String(p.id)} value={String(p.id)}>{p.name}</option>)}</select></label>
+                  {input("name","Sprint name","text",String(s.name))}
+                  {input("start_date","Start date","date",String(s.start_date))}
+                  {input("end_date","End date","date",String(s.end_date))}
+                  <button disabled={busy}>Save sprint</button>
+                  <p className="muted">Sprint dates must contain all linked tasks. Changing dates recalculates capacity; existing bookings remain as entered.</p>
+                </form>}
+              </details>)}</div> : <p className="empty">No sprints yet. Create a sprint above.</p>}
+
             </section>
+
           </>
         )}
         {tab === "Activity" && (
@@ -597,7 +659,7 @@ export default function Home() {
                 <tbody>
                   {rows("allocations").map((a) => (
                     <tr key={String(a.id)}>
-                      <td>{task(a.task_id)}</td>
+                      <td>{a.jira_key || a.task_title || task(a.task_id)}</td>
                       <td>{name("resources", a.resource_id)}</td>
                       <td>{a.day}</td>
                       <td>{a.hours}</td>
@@ -622,7 +684,7 @@ export default function Home() {
                 <tbody>
                   {rows("worklogs").map((x) => (
                     <tr key={String(x.id)}>
-                      <td>{task(x.task_id)}</td>
+                      <td>{x.jira_key || x.task_title || task(x.task_id)}</td>
                       <td>{name("resources", x.resource_id)}</td>
                       <td>{x.day}</td>
                       <td>{x.hours}</td>
@@ -633,7 +695,7 @@ export default function Home() {
             </section>
           </>
         )}
-        {tab === "Administration" && role === "admin" && (
+        {tab === "Admin" && role === "admin" && (
           <div className="two-col">
             <section>
               <h2>Invite a colleague</h2>
@@ -654,28 +716,10 @@ export default function Home() {
                 {save()}
               </form>
             </section>
-            <section>
-              <h2>Add historical rate</h2>
-              <p className="muted">
-                Rates are append-only. Existing actual costs stay fixed.
-              </p>
-              <form onSubmit={(e) => submit(e, "rates", ["hourly_cents"])}>
-                {select("resource_id", "Resource", "resources")}
-                {input("effective_from", "Effective from", "date")}
-                {input("hourly_cents", "USD cents per hour", "number")}
-                {save()}
-              </form>
-              {rows("rates").map((r) => (
-                <p key={String(r.id)}>
-                  {name("resources", r.resource_id)} · {money(r.hourly_cents)}/h
-                  · {r.effective_from}
-                </p>
-              ))}
-            </section>
           </div>
         )}
         <footer>
-          Resource Compass · Planning is a forecast; task completion is always
+          Resource Management · Planning is a forecast; task completion is always
           explicit.
         </footer>
       </main>

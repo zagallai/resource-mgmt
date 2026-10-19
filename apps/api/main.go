@@ -4,13 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"io"
 	"log"
 	"net"
@@ -21,11 +18,8 @@ import (
 	"time"
 )
 
-//go:embed schema.sql
-var schema string
-
 type App struct {
-	db     *pgxpool.Pool
+	db     *DB
 	origin string
 	secure bool
 	send   func(string, string) error
@@ -63,27 +57,28 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 
 func main() {
 	ctx := context.Background()
-	cfg, e := pgxpool.ParseConfig(env("DATABASE_URL", "postgres://compass:compass@localhost:5432/compass?sslmode=disable"))
-	if e != nil {
-		log.Fatal(e)
-	}
-	cfg.ConnConfig.RuntimeParams["timezone"] = "UTC"
-	db, e := pgxpool.NewWithConfig(ctx, cfg)
+	db, e := openDB(env("SQLITE_PATH", defaultDBPath()))
 	if e != nil {
 		log.Fatal(e)
 	}
 	defer db.Close()
-	if e = db.Ping(ctx); e != nil {
+	if e = migrate(ctx, db); e != nil {
 		log.Fatal(e)
 	}
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "migrate":
-			var exists bool
-			db.QueryRow(ctx, "SELECT to_regclass('public.schema_version') IS NOT NULL").Scan(&exists)
-			if !exists {
-				_, e = db.Exec(ctx, schema)
+			e = migrate(ctx, db)
+		case "import-postgres":
+			if len(os.Args) != 3 {
+				log.Fatal("Export file required")
 			}
+			e = importPostgres(ctx, db, os.Args[2])
+		case "backup":
+			if len(os.Args) != 3 {
+				log.Fatal("Backup destination required")
+			}
+			e = db.Backup(ctx, os.Args[2])
 		case "bootstrap":
 			email := strings.ToLower(strings.TrimSpace(os.Getenv("ADMIN_EMAIL")))
 			if !strings.Contains(email, "@") {
@@ -95,38 +90,31 @@ func main() {
 			}
 			defer tx.Rollback(ctx)
 			var org, user string
-			e = tx.QueryRow(ctx, "INSERT INTO organizations(name) VALUES($1) RETURNING id", env("ORG_NAME", "Engineering")).Scan(&org)
+			e = tx.QueryRow(ctx, "INSERT INTO organizations(name) VALUES(?1) RETURNING id", env("ORG_NAME", "Engineering")).Scan(&org)
 			if e == nil {
-				e = tx.QueryRow(ctx, "INSERT INTO users(email) VALUES($1) ON CONFLICT(email) DO UPDATE SET email=excluded.email RETURNING id", email).Scan(&user)
+				e = tx.QueryRow(ctx, "INSERT INTO users(email) VALUES(?1) ON CONFLICT(email) DO UPDATE SET email=excluded.email RETURNING id", email).Scan(&user)
 			}
 			if e == nil {
-				_, e = tx.Exec(ctx, "INSERT INTO memberships VALUES($1,$2,'admin')", org, user)
+				_, e = tx.Exec(ctx, "INSERT INTO memberships VALUES(?1,?2,'admin')", org, user)
 			}
 			if e == nil {
 				e = tx.Commit(ctx)
 				fmt.Println("Organization:", org)
 			}
 		default:
-			log.Fatal("Use migrate or bootstrap")
+			log.Fatal("Use migrate, bootstrap, import-postgres <export.json>, or backup <destination.db>")
 		}
 		if e != nil {
 			log.Fatal(e)
 		}
 		return
 	}
-	var bypass bool
-	if e = db.QueryRow(ctx, "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname=current_user").Scan(&bypass); e != nil {
-		log.Fatal(e)
-	}
-	if bypass {
-		log.Fatal("Refusing to serve HTTP with a database role that bypasses row-level security; use the restricted application role")
-	}
 	a := &App{db: db, origin: env("APP_ORIGIN", "http://localhost:3000"), secure: os.Getenv("COOKIE_SECURE") != "false"}
 	a.send = func(email, link string) error {
-		return smtp.SendMail(env("SMTP_ADDR", "localhost:1025"), nil, env("MAIL_FROM", "compass@localhost"), []string{email}, []byte("From: "+env("MAIL_FROM", "compass@localhost")+"\r\nTo: "+email+"\r\nSubject: Resource Compass sign-in\r\n\r\nOpen this single-use link within 10 minutes:\r\n"+link))
+		return smtp.SendMail(env("SMTP_ADDR", "localhost:1025"), nil, env("MAIL_FROM", "compass@localhost"), []string{email}, []byte("From: "+env("MAIL_FROM", "compass@localhost")+"\r\nTo: "+email+"\r\nSubject: Resource Management sign-in\r\n\r\nOpen this single-use link within 10 minutes:\r\n"+link))
 	}
 	s := &http.Server{Addr: env("LISTEN_ADDR", ":8080"), Handler: a.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
-	log.Printf("Resource Compass API %s", s.Addr)
+	log.Printf("Resource Management API %s", s.Addr)
 	log.Fatal(s.ListenAndServe())
 }
 func (a *App) handler() http.Handler {
@@ -163,7 +151,7 @@ func (a *App) requestLink(w http.ResponseWriter, r *http.Request) {
 	email := strings.ToLower(strings.TrimSpace(b.Email))
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
 	var hits int
-	e := a.db.QueryRow(r.Context(), `INSERT INTO auth_limits(key,hits,resets_at) VALUES($1,1,now()+interval '15 minutes') ON CONFLICT(key) DO UPDATE SET hits=CASE WHEN auth_limits.resets_at<now() THEN 1 ELSE auth_limits.hits+1 END,resets_at=CASE WHEN auth_limits.resets_at<now() THEN now()+interval '15 minutes' ELSE auth_limits.resets_at END RETURNING hits`, hash(host)).Scan(&hits)
+	e := a.db.QueryRow(r.Context(), `INSERT INTO auth_limits(key,hits,resets_at) VALUES(?1,1,(strftime('%Y-%m-%dT%H:%M:%f','now','+15 minutes') || '000Z')) ON CONFLICT(key) DO UPDATE SET hits=CASE WHEN auth_limits.resets_at<(strftime('%Y-%m-%dT%H:%M:%f','now') || '000Z') THEN 1 ELSE auth_limits.hits+1 END,resets_at=CASE WHEN auth_limits.resets_at<(strftime('%Y-%m-%dT%H:%M:%f','now') || '000Z') THEN (strftime('%Y-%m-%dT%H:%M:%f','now','+15 minutes') || '000Z') ELSE auth_limits.resets_at END RETURNING hits`, hash(host)).Scan(&hits)
 	if e != nil {
 		respond(w, 503, map[string]string{"error": "Try later"})
 		return
@@ -173,10 +161,10 @@ func (a *App) requestLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var allowed bool
-	e = a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM users u JOIN memberships m ON m.user_id=u.id WHERE email=$1) OR EXISTS(SELECT 1 FROM invitations WHERE email=$1 AND accepted_at IS NULL AND expires_at>now())`, email).Scan(&allowed)
+	e = a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM users u JOIN memberships m ON m.user_id=u.id WHERE email=?1) OR EXISTS(SELECT 1 FROM invitations WHERE email=?1 AND accepted_at IS NULL AND expires_at>(strftime('%Y-%m-%dT%H:%M:%f','now') || '000Z'))`, email).Scan(&allowed)
 	if e == nil && allowed {
 		t := token()
-		_, e = a.db.Exec(r.Context(), "INSERT INTO login_tokens(hash,email,expires_at) VALUES($1,$2,now()+interval '10 minutes')", hash(t), email)
+		_, e = a.db.Exec(r.Context(), "INSERT INTO login_tokens(hash,email,expires_at) VALUES(?1,?2,(strftime('%Y-%m-%dT%H:%M:%f','now','+10 minutes') || '000Z'))", hash(t), email)
 		if e == nil {
 			e = a.send(email, a.origin+"/verify#token="+t)
 		}
@@ -202,25 +190,28 @@ func (a *App) verify(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(ctx)
 	var email, user string
-	e = tx.QueryRow(ctx, "UPDATE login_tokens SET used_at=now() WHERE hash=$1 AND used_at IS NULL AND expires_at>now() RETURNING email", hash(b.Token)).Scan(&email)
+	e = tx.QueryRow(ctx, "UPDATE login_tokens SET used_at=(strftime('%Y-%m-%dT%H:%M:%f','now') || '000Z') WHERE hash=?1 AND used_at IS NULL AND expires_at>(strftime('%Y-%m-%dT%H:%M:%f','now') || '000Z') RETURNING email", hash(b.Token)).Scan(&email)
 	if e != nil {
 		respond(w, 401, map[string]string{"error": "Link invalid or expired"})
 		return
 	}
-	e = tx.QueryRow(ctx, "INSERT INTO users(email) VALUES($1) ON CONFLICT(email) DO UPDATE SET email=excluded.email RETURNING id", email).Scan(&user)
+	e = tx.QueryRow(ctx, "INSERT INTO users(email) VALUES(?1) ON CONFLICT(email) DO UPDATE SET email=excluded.email RETURNING id", email).Scan(&user)
 	if e == nil {
-		_, e = tx.Exec(ctx, `WITH accepted AS (UPDATE invitations SET accepted_at=now() WHERE email=$1 AND accepted_at IS NULL AND expires_at>now() RETURNING org_id,role) INSERT INTO memberships SELECT org_id,$2::uuid,role FROM accepted ON CONFLICT DO NOTHING`, email, user)
+		_, e = tx.Exec(ctx, "INSERT INTO memberships(org_id,user_id,role) SELECT org_id,?2,role FROM invitations WHERE email=?1 AND accepted_at IS NULL AND expires_at>(strftime('%Y-%m-%dT%H:%M:%f','now') || '000Z') ON CONFLICT DO NOTHING", email, user)
+		if e == nil {
+			_, e = tx.Exec(ctx, "UPDATE invitations SET accepted_at=(strftime('%Y-%m-%dT%H:%M:%f','now') || '000Z') WHERE email=?1 AND accepted_at IS NULL AND expires_at>(strftime('%Y-%m-%dT%H:%M:%f','now') || '000Z')", email)
+		}
 	}
 	var count int
 	if e == nil {
-		e = tx.QueryRow(ctx, "SELECT count(*) FROM memberships WHERE user_id=$1", user).Scan(&count)
+		e = tx.QueryRow(ctx, "SELECT count(*) FROM memberships WHERE user_id=?1", user).Scan(&count)
 	}
 	if e != nil || count == 0 {
 		respond(w, 401, map[string]string{"error": "Invitation required"})
 		return
 	}
 	s := token()
-	_, e = tx.Exec(ctx, "INSERT INTO sessions VALUES($1,$2,now()+interval '24 hours')", hash(s), user)
+	_, e = tx.Exec(ctx, "INSERT INTO sessions VALUES(?1,?2,(strftime('%Y-%m-%dT%H:%M:%f','now','+24 hours') || '000Z'))", hash(s), user)
 	if e == nil {
 		e = tx.Commit(ctx)
 	}
@@ -237,12 +228,12 @@ func (a *App) identity(r *http.Request) (string, error) {
 		return "", e
 	}
 	var id string
-	e = a.db.QueryRow(r.Context(), "SELECT user_id FROM sessions WHERE hash=$1 AND expires_at>now()", hash(c.Value)).Scan(&id)
+	e = a.db.QueryRow(r.Context(), "SELECT user_id FROM sessions WHERE hash=?1 AND expires_at>(strftime('%Y-%m-%dT%H:%M:%f','now') || '000Z')", hash(c.Value)).Scan(&id)
 	return id, e
 }
 func (a *App) logout(w http.ResponseWriter, r *http.Request) {
 	if c, e := r.Cookie("rc_session"); e == nil {
-		a.db.Exec(r.Context(), "DELETE FROM sessions WHERE hash=$1", hash(c.Value))
+		a.db.Exec(r.Context(), "DELETE FROM sessions WHERE hash=?1", hash(c.Value))
 	}
 	http.SetCookie(w, &http.Cookie{Name: "rc_session", Path: "/", MaxAge: -1, HttpOnly: true, Secure: a.secure, SameSite: http.SameSiteLaxMode})
 	respond(w, 200, map[string]bool{"ok": true})
@@ -253,13 +244,12 @@ func (a *App) me(w http.ResponseWriter, r *http.Request) {
 		respond(w, 401, nil)
 		return
 	}
-	var raw []byte
-	e = a.db.QueryRow(r.Context(), `SELECT coalesce(json_agg(json_build_object('id',o.id,'name',o.name,'role',m.role)),'[]') FROM memberships m JOIN organizations o ON o.id=m.org_id WHERE user_id=$1`, u).Scan(&raw)
+	rows, e := a.db.QueryMaps(r.Context(), "SELECT o.id,o.name,m.role FROM memberships m JOIN organizations o ON o.id=m.org_id WHERE user_id=?1", u)
 	if e != nil {
 		respond(w, 500, nil)
 		return
 	}
-	respond(w, 200, json.RawMessage(raw))
+	respond(w, 200, rows)
 }
 func (a *App) scoped(w http.ResponseWriter, r *http.Request) {
 	u, e := a.identity(r)
@@ -276,16 +266,12 @@ func (a *App) scoped(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(ctx)
 	org := r.PathValue("org")
 	var role string
-	e = tx.QueryRow(ctx, "SELECT role FROM memberships WHERE user_id=$1 AND org_id::text=$2", u, org).Scan(&role)
+	e = tx.QueryRow(ctx, "SELECT role FROM memberships WHERE user_id=?1 AND org_id=?2", u, org).Scan(&role)
 	if e != nil {
 		respond(w, 404, map[string]string{"error": "Organization not found"})
 		return
 	}
-	_, e = tx.Exec(ctx, "SELECT set_config('app.tenant',$1,true)", org)
-	if e != nil {
-		respond(w, 500, nil)
-		return
-	}
+	tx.org = org
 	path := r.PathValue("rest")
 	if r.Method == "GET" {
 		a.read(w, r, tx, path, role)
@@ -324,8 +310,8 @@ type validation struct {
 
 func (v *validation) Error() string { return v.message }
 func invalid(s string) error        { return &validation{400, s} }
-func audit(ctx context.Context, tx pgx.Tx, org, user, id, action string, detail any) error {
+func audit(ctx context.Context, tx *Tx, org, user, id, action string, detail any) error {
 	raw, _ := json.Marshal(detail)
-	_, e := tx.Exec(ctx, "INSERT INTO audit_events(org_id,actor_id,entity_id,action,detail) VALUES($1,$2,$3,$4,$5)", org, user, id, action, raw)
+	_, e := tx.Exec(ctx, "INSERT INTO audit_events(org_id,actor_id,entity_id,action,detail) VALUES(?1,?2,?3,?4,?5)", org, user, id, action, raw)
 	return e
 }

@@ -2,7 +2,7 @@
 
 | Entity | Relationships and invariants |
 |---|---|
-| Organization | Name, USD currency. Operator creates initially. |
+| Organization | Name, currency-neutral amounts. Operator creates initially. |
 | User | Globally unique normalized email. |
 | Membership | (org, user), role; permits multiple organizations. |
 | Invitation | Org, email, role, seven-day expiry and acceptance timestamp. |

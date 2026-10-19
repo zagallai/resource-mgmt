@@ -26,3 +26,8 @@
 - [ ] T020 CSV import, later Jira API sync with explicit source-of-truth rules.
 - [ ] T021 Ordered incremental migrations, backups/restore rehearsal, deployment and observability.
 - [ ] T022 Passkeys and Microsoft Entra OIDC (future).
+
+## 002 — Dedicated management screens
+- [x] Resources: profiles, offshore/onshore, company, configured working hours and dated hourly rates.
+- [x] Projects: dates, PM, per-project planned activities, edits, omissions/restoration and custom activity entry.
+- [x] Additive migration, version checks, audit/RLS safeguards and regression tests.

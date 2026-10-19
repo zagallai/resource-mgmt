@@ -3,7 +3,7 @@
   "info": {
     "title": "Resource Compass REST API",
     "version": "0.1.0",
-    "description": "All mutations require an Origin header matching APP_ORIGIN. Tenant business reads enforce RLS. Rates/history admin-only; dashboard manager/admin-only. USD cents and UTC date-only allocations."
+    "description": "All mutations require an Origin header matching APP_ORIGIN. Tenant business reads enforce RLS. Rates/history admin-only; dashboard manager/admin-only. Integer minor units and UTC date-only allocations."
   },
   "servers": [
     {
@@ -516,22 +516,39 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "additionalProperties": false,
                 "properties": {
                   "name": {
+                    "type": "string"
+                  },
+                  "location_type": {
                     "type": "string",
-                    "minLength": 1
+                    "enum": [
+                      "onshore",
+                      "offshore"
+                    ]
+                  },
+                  "company_name": {
+                    "type": "string"
                   },
                   "daily_hours": {
                     "type": "number",
+                    "default": 8,
                     "exclusiveMinimum": 0,
                     "maximum": 24
+                  },
+                  "hourly_cents": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "effective_from": {
+                    "type": "string",
+                    "format": "date"
                   }
                 },
                 "required": [
-                  "name",
-                  "daily_hours"
-                ]
+                  "name"
+                ],
+                "additionalProperties": false
               }
             }
           }
@@ -655,7 +672,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Project is required. Sprints belong to one active project; tasks must use a sprint belonging to their project and remain within its dates."
       }
     },
     "/api/orgs/{org}/history": {
@@ -756,7 +774,7 @@
         }
       },
       "post": {
-        "summary": "Create projects (rates/invitations require admin)",
+        "summary": "Create a project with optional user-entered initial activities; no defaults",
         "responses": {
           "201": {
             "description": "Success",
@@ -802,21 +820,60 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "additionalProperties": false,
                 "properties": {
                   "name": {
+                    "type": "string"
+                  },
+                  "start_date": {
                     "type": "string",
-                    "minLength": 1
+                    "format": "date"
+                  },
+                  "end_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "pm_name": {
+                    "type": "string"
                   },
                   "budget_cents": {
                     "type": "integer",
                     "minimum": 0
+                  },
+                  "prime_resource_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "Prime resource from the same organization"
+                  },
+                  "closed_date": {
+                    "type": "string",
+                    "description": "Optional closed date (YYYY-MM-DD); empty string clears it on edit. Omission preserves it on edit. Must not precede project start.",
+                    "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "activities": {
+                    "type": "array",
+                    "description": "Optional activity rows saved atomically with the project. Entirely blank rows are ignored. Names must be unique; dated activities must fall within the project window.",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "start_date": {
+                          "type": "string"
+                        },
+                        "end_date": {
+                          "type": "string"
+                        }
+                      }
+                    }
                   }
                 },
                 "required": [
                   "name",
-                  "budget_cents"
-                ]
+                  "prime_resource_id"
+                ],
+                "additionalProperties": false
               }
             }
           }
@@ -1552,6 +1609,765 @@
                 ]
               }
             }
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/resources/{resource}/capacity": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "resource",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "summary": "Configure a resource\u2019s working hours per day; updates daily and sprint capacity and appends an audit event",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "daily_hours"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "daily_hours": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 24
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Updated resource identifier"
+          },
+          "400": {
+            "description": "Invalid working hours"
+          },
+          "403": {
+            "description": "Read-only role"
+          },
+          "404": {
+            "description": "Resource not found in organization"
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/resources/{record}/edit": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "record",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "summary": "Edit resources with optimistic version and audit",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "location_type": {
+                    "type": "string",
+                    "enum": [
+                      "onshore",
+                      "offshore"
+                    ]
+                  },
+                  "company_name": {
+                    "type": "string"
+                  },
+                  "daily_hours": {
+                    "type": "number",
+                    "default": 8,
+                    "exclusiveMinimum": 0,
+                    "maximum": 24
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "name",
+                  "version"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Saved record identifier"
+          },
+          "400": {
+            "description": "Invalid values, date range or duplicate activity name"
+          },
+          "401": {
+            "description": "Sign-in required"
+          },
+          "403": {
+            "description": "Role denied"
+          },
+          "404": {
+            "description": "Record not found in this organization"
+          },
+          "409": {
+            "description": "Stale edit; refresh and retry"
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/projects/{record}/edit": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "record",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "summary": "Edit projects with optimistic version and audit",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "start_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "end_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "pm_name": {
+                    "type": "string"
+                  },
+                  "budget_cents": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "prime_resource_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "Prime resource from the same organization"
+                  },
+                  "closed_date": {
+                    "type": "string",
+                    "description": "Optional closed date (YYYY-MM-DD); empty string clears it on edit. Omission preserves it on edit. Must not precede project start.",
+                    "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$"
+                  }
+                },
+                "required": [
+                  "name",
+                  "version"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Saved record identifier"
+          },
+          "400": {
+            "description": "Invalid values, date range or duplicate activity name"
+          },
+          "401": {
+            "description": "Sign-in required"
+          },
+          "403": {
+            "description": "Role denied"
+          },
+          "404": {
+            "description": "Record not found in this organization"
+          },
+          "409": {
+            "description": "Stale edit; refresh and retry"
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/project-activities/{record}/edit": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "record",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "summary": "Edit project-activities with optimistic version and audit",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "start_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "end_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "name",
+                  "version"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Saved record identifier"
+          },
+          "400": {
+            "description": "Invalid values, date range or duplicate activity name"
+          },
+          "401": {
+            "description": "Sign-in required"
+          },
+          "403": {
+            "description": "Role denied"
+          },
+          "404": {
+            "description": "Record not found in this organization"
+          },
+          "409": {
+            "description": "Stale edit; refresh and retry"
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/project-activities": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "summary": "Create an additional planned project activity",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "project_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "start_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "end_date": {
+                    "type": "string",
+                    "format": "date"
+                  }
+                },
+                "required": [
+                  "project_id",
+                  "name"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Saved record identifier"
+          },
+          "400": {
+            "description": "Invalid values, date range or duplicate activity name"
+          },
+          "401": {
+            "description": "Sign-in required"
+          },
+          "403": {
+            "description": "Role denied"
+          },
+          "404": {
+            "description": "Record not found in this organization"
+          },
+          "409": {
+            "description": "Stale edit; refresh and retry"
+          }
+        }
+      },
+      "get": {
+        "summary": "List saved project activities for the organization",
+        "responses": {
+          "200": {
+            "description": "Activity array, grouped by project in the frontend"
+          },
+          "401": {
+            "description": "Sign-in required"
+          },
+          "404": {
+            "description": "Organization not found"
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/project-activities/{record}/delete": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "record",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "summary": "Delete a project activity and retain its snapshot in the audit history",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version"
+                ],
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Deleted identifier"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Sign-in required"
+          },
+          "403": {
+            "description": "Read-only role"
+          },
+          "404": {
+            "description": "Activity not found in organization"
+          },
+          "409": {
+            "description": "Activity changed; refresh before deleting"
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/projects/{record}/delete": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "record",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "summary": "Confirm project removal; optionally override linked task restriction, release future allocations and preserve recorded history",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version"
+                ],
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "include_linked_tasks": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Explicitly authorize removing linked tasks from active views and releasing today and future allocations."
+                  },
+                  "confirm_name": {
+                    "type": "string",
+                    "description": "Exact project name; required when include_linked_tasks is true."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Removed project identifier"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Sign-in required"
+          },
+          "403": {
+            "description": "Read-only membership"
+          },
+          "404": {
+            "description": "Project not found"
+          },
+          "409": {
+            "description": "Stale version or linked tasks without override; nothing changed"
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/resources/{record}/archive": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "record",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "summary": "Archive resource without changing existing tasks, rates, worklogs or allocations",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version"
+                ],
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Resource identifier"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Sign-in required"
+          },
+          "403": {
+            "description": "Read-only membership"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "409": {
+            "description": "Stale version or already in requested state"
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/resources/{record}/restore": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "record",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "summary": "Restore resource without changing existing tasks, rates, worklogs or allocations",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version"
+                ],
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Resource identifier"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Sign-in required"
+          },
+          "403": {
+            "description": "Read-only membership"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "409": {
+            "description": "Stale version or already in requested state"
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/archived-resources": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "List archived resource profiles, newest created first; hourly rate restricted to admins",
+        "responses": {
+          "200": {
+            "description": "Archived resource array"
+          },
+          "401": {
+            "description": "Sign-in required"
+          },
+          "404": {
+            "description": "Organization not found"
+          }
+        }
+      }
+    },
+    "/api/orgs/{org}/resources/{record}/delete": {
+      "parameters": [
+        {
+          "name": "org",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "record",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "summary": "Delete an unused resource from active and archived lists; preserve audit and rate records",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version"
+                ],
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Removed resource identifier"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Sign-in required"
+          },
+          "403": {
+            "description": "Read-only membership"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "409": {
+            "description": "Stale version or linked work/project history; archive instead"
           }
         }
       }

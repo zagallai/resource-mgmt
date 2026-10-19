@@ -1,56 +1,36 @@
 name: resource-compass
+x-api: &api
+  build: ./apps/api
+  user: "${LOCAL_UID:-10001}:${LOCAL_GID:-10001}"
+  volumes:
+    - ./data:/data
+    - ./backups:/backups
+  environment: &api-env
+    SQLITE_PATH: /data/resource-compass.db
 services:
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: compass
-      POSTGRES_PASSWORD: compass_local
-      POSTGRES_DB: compass
-    ports: ["127.0.0.1:5432:5432"]
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/001-roles.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U compass -d compass"]
-      interval: 3s
-      timeout: 3s
-      retries: 20
   mail:
     image: axllent/mailpit:v1.27
     ports: ["127.0.0.1:8025:8025"]
-  migrate:
-    build: ./apps/api
-    command: ["migrate"]
-    environment:
-      DATABASE_URL: postgres://compass:compass_local@db:5432/compass?sslmode=disable
-    depends_on:
-      db: {condition: service_healthy}
   bootstrap:
-    build: ./apps/api
+    <<: *api
     command: ["bootstrap"]
     profiles: ["setup"]
     environment:
-      DATABASE_URL: postgres://compass:compass_local@db:5432/compass?sslmode=disable
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      <<: *api-env
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@resourcemgmt.com}
       ORG_NAME: ${ORG_NAME:-Engineering}
-    depends_on:
-      migrate: {condition: service_completed_successfully}
   api:
-    build: ./apps/api
+    <<: *api
     environment:
-      DATABASE_URL: postgres://compass_app:compass_app_local@db:5432/compass?sslmode=disable
+      <<: *api-env
       SMTP_ADDR: mail:1025
       APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
     ports: ["127.0.0.1:8080:8080"]
-    depends_on:
-      migrate: {condition: service_completed_successfully}
-      mail: {condition: service_started}
+    depends_on: [mail]
   web:
     build: ./apps/web
     environment:
       API_URL: http://api:8080
     ports: ["127.0.0.1:3000:3000"]
     depends_on: [api]
-volumes:
-  pgdata:

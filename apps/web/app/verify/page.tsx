@@ -2,7 +2,7 @@
 import { useState } from "react";
 export default function Verify() {
   const [message, setMessage] = useState(
-    "Confirm sign-in to Resource Compass.",
+    "Confirm sign-in to Resource Management.",
   );
   const [busy, setBusy] = useState(false);
   async function verify() {
@@ -27,7 +27,7 @@ export default function Verify() {
   }
   return (
     <main className="login">
-      <div className="brand">◈ Resource Compass</div>
+      <div className="brand">◈ Resource Management</div>
       <h1>Welcome aboard</h1>
       <p role="status">{message}</p>
       <button disabled={busy} onClick={verify}>

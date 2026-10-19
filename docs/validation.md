@@ -82,3 +82,6 @@ Project-owned sprint migration applied after local database backup. Frontend pro
 The active local runtime now uses project-local SQLite. See validation-sqlite.md for complete migration, field verification, race tests, backup/restore and isolated browser evidence. Historical PostgreSQL results above remain as prior implementation evidence, not the current runtime configuration.
 
 Administrator login email updated to admin@resourcemgmt.com; user ID, memberships and existing sessions retained. Old-email magic links invalidated.
+
+## Fresh-machine preparation
+A clean export of the staged Git index to an isolated directory was validated without the working repository's node_modules, build output, settings or database. npm ci installed 34 packages with zero reported vulnerabilities; the frontend production build passed. Backend race tests, a CGO-disabled API binary build, fresh administrator bootstrap and backup into a previously missing directory passed. The fresh database and its backup both passed integrity checks and retained the new test workspace. Shell syntax and Compose configuration passed; Docker container startup remains unverified because the local daemon is stopped. This is clean-checkout evidence on this Mac, not a claim of testing a second physical machine. No test records were added to the user's working database.

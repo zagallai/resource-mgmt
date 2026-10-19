@@ -2,6 +2,8 @@
 
 Engineering resource and project planning with a Next.js/TypeScript frontend, Go REST API and a portable SQLite database. No PostgreSQL service is required. The database defaults to `data/resource-compass.db` inside this project and is excluded from Git.
 
+For a newly downloaded copy, follow [Run on another machine](docs/run-on-another-machine.md). It covers both a clean installation and transferring existing data.
+
 ## Native start
 
 Requires Go 1.26+, Node 24 and an SMTP inbox. Schema initialization runs automatically when the API starts.
@@ -26,12 +28,12 @@ Open http://localhost:3000 and request a sign-in link. The local inbox is http:/
 
 ```sh
 cp .env.example .env
-./scripts/compose-local.sh up --build -d
+sh scripts/compose-local.sh up --build -d
 # New installations only:
-./scripts/compose-local.sh --profile setup run --rm bootstrap
+sh scripts/compose-local.sh --profile setup run --rm bootstrap
 ```
 
-The wrapper uses your local user/group IDs and prepares private `data/` and `backups/` directories. SQLite is bind-mounted from this project; there is no database-server container. Stop with `./scripts/compose-local.sh down`. Existing data is retained. Docker is an optional local environment; use HTTPS, secure cookies and proper SMTP when hosting.
+The wrapper uses your local user/group IDs and prepares private `data/` and `backups/` directories. SQLite is bind-mounted from this project; there is no database-server container. Stop with `sh scripts/compose-local.sh down`. Existing data is retained. Docker is an optional local environment; use HTTPS, secure cookies and proper SMTP when hosting.
 
 ## Working in the app
 
@@ -53,7 +55,7 @@ cd apps/api
 go run . backup ../../backups/resource-compass-transfer.db
 ```
 
-For Docker, use `./scripts/compose-local.sh exec api compass backup /backups/resource-compass-transfer.db`.
+For Docker, use `sh scripts/compose-local.sh exec api compass backup /backups/resource-compass-transfer.db`.
 
 For a move, stop the source API after its final backup, copy the application and snapshot to the destination, place the snapshot at `data/resource-compass.db`, restore runtime/SMTP settings, install dependencies and start. Do not bootstrap again. Rebuild binaries for a different operating system/CPU. Do not copy only the main file while the API is running: WAL companion files can contain recent writes. Use the backup command, or stop the API and copy the entire data directory. Use persistent local disk, not a network share or an ephemeral deployment filesystem. Separate writable copies do not synchronize.
 

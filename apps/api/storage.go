@@ -283,6 +283,9 @@ func (db *DB) Backup(ctx context.Context, dest string) error {
 	if _, e = os.Stat(abs); !os.IsNotExist(e) {
 		return errors.New("backup destination must not exist")
 	}
+	if e = os.MkdirAll(filepath.Dir(abs), 0700); e != nil {
+		return e
+	}
 	if _, e = db.raw.ExecContext(ctx, "VACUUM INTO "+quote(abs)); e != nil {
 		return e
 	}

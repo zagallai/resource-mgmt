@@ -31,7 +31,7 @@ func TestBackupRestore(t *testing.T) {
 	if _, e := db.Exec(ctx, "INSERT INTO organizations(name) VALUES(?1)", "Portable team"); e != nil {
 		t.Fatal(e)
 	}
-	path := filepath.Join(t.TempDir(), "portable.db")
+	path := filepath.Join(t.TempDir(), "new-backup-directory", "portable.db")
 	if e := db.Backup(ctx, path); e != nil {
 		t.Fatal(e)
 	}

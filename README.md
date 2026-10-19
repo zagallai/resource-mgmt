@@ -4,36 +4,43 @@ Engineering resource and project planning with a Next.js/TypeScript frontend, Go
 
 For a newly downloaded copy, follow [Run on another machine](docs/run-on-another-machine.md). It covers both a clean installation and transferring existing data.
 
-## Native start
+## Install and build
 
-Requires Go 1.26+, Node 24 and an SMTP inbox. Schema initialization runs automatically when the API starts.
+Install Go 1.26 or newer and Node.js 24 with npm. From the project folder, build the API and frontend:
 
 ```sh
-# Terminal 1, from the project root
-node scripts/dev-mail.mjs
-# Terminal 2
 cd apps/api
-# New installation only: run bootstrap once, not after copying an existing database.
-ADMIN_EMAIL=admin@resourcemgmt.com ORG_NAME=Engineering go run . bootstrap
-COOKIE_SECURE=false APP_ORIGIN=http://localhost:3000 SMTP_ADDR=127.0.0.1:1025 go run .
-# Terminal 3
-cd apps/web
+go mod download
+go build -o compass .
+cd ../web
 npm ci
-npm run dev
+npm run build
 ```
 
-Open http://localhost:3000 and request a sign-in link. The local inbox is http://localhost:8025. Links expire in 10 minutes; sessions last 24 hours. Set `SQLITE_PATH` to an absolute file location to override the default. The API resolves the default inside the source project's data directory; a standalone binary uses `data/` under its working directory.
+## Run locally
 
-## Docker start
+Start these in three separate terminals. Each terminal starts in the project folder.
 
 ```sh
-cp .env.example .env
-sh scripts/compose-local.sh up --build -d
-# New installations only:
-sh scripts/compose-local.sh --profile setup run --rm bootstrap
+# Terminal 1: local email inbox
+node scripts/dev-mail.mjs
 ```
 
-The wrapper uses your local user/group IDs and prepares private `data/` and `backups/` directories. SQLite is bind-mounted from this project; there is no database-server container. Stop with `sh scripts/compose-local.sh down`. Existing data is retained. Docker is an optional local environment; use HTTPS, secure cookies and proper SMTP when hosting.
+```sh
+# Terminal 2: API
+cd apps/api
+# New installation only; skip this after transferring an existing database:
+ADMIN_EMAIL=admin@resourcemgmt.com ORG_NAME=Engineering ./compass bootstrap
+COOKIE_SECURE=false APP_ORIGIN=http://localhost:3000 SMTP_ADDR=127.0.0.1:1025 ./compass
+```
+
+```sh
+# Terminal 3: frontend
+cd apps/web
+npm start
+```
+
+Open http://localhost:3000 and request a sign-in link. The local inbox is http://localhost:8025. Links expire in 10 minutes; sessions last 24 hours. The API initializes the SQLite schema automatically. Set `SQLITE_PATH` to an absolute file location to override the default. The API resolves the default inside the source project's data directory; a standalone binary uses `data/` under its working directory.
 
 ## Working in the app
 
@@ -52,10 +59,8 @@ Create a consistent standalone database snapshot; the destination must not alrea
 
 ```sh
 cd apps/api
-go run . backup ../../backups/resource-compass-transfer.db
+./compass backup ../../backups/resource-compass-transfer.db
 ```
-
-For Docker, use `sh scripts/compose-local.sh exec api compass backup /backups/resource-compass-transfer.db`.
 
 For a move, stop the source API after its final backup, copy the application and snapshot to the destination, place the snapshot at `data/resource-compass.db`, restore runtime/SMTP settings, install dependencies and start. Do not bootstrap again. Rebuild binaries for a different operating system/CPU. Do not copy only the main file while the API is running: WAL companion files can contain recent writes. Use the backup command, or stop the API and copy the entire data directory. Use persistent local disk, not a network share or an ephemeral deployment filesystem. Separate writable copies do not synchronize.
 
@@ -79,4 +84,4 @@ See [the SQLite decision](docs/decisions/0002-sqlite-portability.md), [schema di
 
 ## GitHub repository
 
-SQLite databases, backups, local environment files, generated screenshots and build output are excluded from Git. A fresh checkout starts without working data; follow the bootstrap steps above. Never add a database or export to source control. CI runs backend race tests, Go vet, a production frontend build and Compose configuration validation.
+SQLite databases, backups, local environment files, generated screenshots and build output are excluded from Git. A fresh checkout starts without working data; follow the bootstrap steps above. Never add a database or export to source control. CI runs backend race tests, Go vet and a production frontend build.

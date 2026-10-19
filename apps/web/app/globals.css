@@ -241,8 +241,20 @@ details {
   margin-top: 18px;
   font-size: 12px;
 }
-summary {
+details > summary {
   cursor: pointer;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f0f4ed;
+}
+details[open] > summary {
+  background: var(--accent);
+  border-color: #b9d67b;
+}
+details > summary:focus-visible {
+  outline: 3px solid #91bcb1;
+  outline-offset: 2px;
 }
 .form-grid {
   grid-template-columns: repeat(3, 1fr);
@@ -336,6 +348,10 @@ footer {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fafbf8;
+}
+.management-card[open] {
+  background: white;
+  border-color: #b9d67b;
 }
 .management-card summary {
   display: flex;

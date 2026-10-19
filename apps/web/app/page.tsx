@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, FormEvent } from "react";
 import { ResourcesScreen, ProjectsScreen } from "./management";
+import { syncDateRange } from "./date-range";
 type Row = Record<string, string | number | boolean | null>;
 type Org = { id: string; name: string; role: string };
 const collections = [
@@ -444,6 +445,8 @@ export default function Home() {
                 <form
                   className="form-grid"
                   onSubmit={(e) => submit(e, "tasks")}
+                  onChange={e => syncDateRange(e, "target_date")}
+                  onFocusCapture={e => syncDateRange(e, "target_date")}
                 >
                   <label>Project<select aria-label="Project" name="project_id" required value={taskProject} onChange={e => setTaskProject(e.target.value)}><option value="">Select…</option>{rows("projects").map(p => <option key={String(p.id)} value={String(p.id)}>{p.name}</option>)}</select></label>
                   {input("jira_key", "Jira key (optional)")}
@@ -452,7 +455,7 @@ export default function Home() {
                   <label>Estimated days<input name="estimate_days" type="number" required min="0" step="0.25" aria-describedby="estimate-days-help" /></label>
                   <p id="estimate-days-help" className="muted">Effort in days: 0.25, 0.5, 1, 3, etc. One estimated day equals 8 working hours. Resource availability still uses each person’s configured daily hours.</p>
                   {input("start_date", "Start date", "date")}
-                  {input("target_date", "Target date", "date")}
+                  {input("target_date", "End date", "date")}
                   <label>Sprint<select key={taskProject} name="sprint_id" aria-label="Sprint"><option value="">No sprint</option>{rows("sprints").filter(s => s.project_id === taskProject).map(s => <option key={String(s.id)} value={String(s.id)}>{s.name}</option>)}</select></label>
                   <p className="muted">If a sprint is selected, task dates must fall within its start and end dates.</p>
                   {save()}
@@ -608,7 +611,7 @@ export default function Home() {
                 <>
                   <section>
                     <h2>Create sprint</h2>
-                    <form onSubmit={(e) => submit(e, "sprints")}>
+                    <form onSubmit={(e) => submit(e, "sprints")} onChange={syncDateRange} onFocusCapture={syncDateRange}>
                       {select("project_id","Project","projects")}
                       {input("name", "Sprint name")}
                       {input("start_date", "Start date", "date")}
@@ -623,7 +626,7 @@ export default function Home() {
               <h2>Sprints</h2>
               {rows("sprints").length ? <div className="management-list">{rows("sprints").map(s => <details className="management-card" key={String(s.id)}>
                 <summary><strong>{s.name}</strong><span>{s.project_id ? name("projects",s.project_id) : "Choose project"} · {s.start_date} → {s.end_date}</span></summary>
-                {editable && <form className="form-grid" onSubmit={e => submit(e,`sprints/${s.id}/edit`)}>
+                {editable && <form className="form-grid" onSubmit={e => submit(e,`sprints/${s.id}/edit`)} onChange={syncDateRange} onFocusCapture={syncDateRange}>
                   <input type="hidden" name="previous_name" value={String(s.name)} />
                   <input type="hidden" name="previous_start" value={String(s.start_date)} />
                   <input type="hidden" name="previous_end" value={String(s.end_date)} />

@@ -1,5 +1,6 @@
 "use client";
 import { useState, useRef, FormEvent } from "react";
+import { syncDateRange } from "./date-range";
 export type Row = Record<string, string | number | boolean | null>;
 type Save = (
   path: string,
@@ -379,7 +380,13 @@ export function ProjectsScreen({
     value: string,
   ) {
     setDraftActivities((rows) =>
-      rows.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
+      rows.map((row) => {
+        if (row.id !== id) return row;
+        if (field === "start_date") {
+          return { ...row, start_date: value, end_date: value };
+        }
+        return { ...row, [field]: value };
+      }),
     );
   }
   const editable = role !== "viewer";
@@ -438,6 +445,8 @@ export function ProjectsScreen({
             className="form-grid"
             aria-label="Edit project"
             key={`${project.id}-${project.version}`}
+            onChange={syncDateRange}
+            onFocusCapture={syncDateRange}
             onSubmit={async (e) => {
               const b = values(e);
               await onSave(`projects/${project.id}/edit`, {
@@ -596,6 +605,8 @@ export function ProjectsScreen({
                 className="form-grid"
                 aria-label="Project activity"
                 key={`${project.id}-${activity?.id || "new"}-${activity?.version || 0}`}
+                onChange={syncDateRange}
+                onFocusCapture={syncDateRange}
                 onSubmit={async (e) => {
                   const b = values(e);
                   const payload: Record<string, unknown> = {
@@ -699,6 +710,8 @@ export function ProjectsScreen({
             className="form-grid"
             aria-label="Add project"
             onSubmit={create}
+            onChange={syncDateRange}
+            onFocusCapture={syncDateRange}
           >
             <Field name="name" label="Project name" />
             <Field name="start_date" label="Project start date" type="date" />
@@ -748,6 +761,7 @@ export function ProjectsScreen({
                       aria-label="End date"
                       type="date"
                       value={row.end_date}
+                      min={row.start_date || undefined}
                       onChange={(e) =>
                         updateDraft(row.id, "end_date", e.target.value)
                       }
